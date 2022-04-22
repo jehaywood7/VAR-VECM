@@ -1,0 +1,228 @@
+---
+title: "Using a VAR Model to understand the dynamics of retail sales and average hourly earnings"
+author: "Jonathan Haywood"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: 
+  html_document:
+    df_print: paged
+    code_folding: "hide"
+    toc: yes
+    fig_caption: no
+    theme: 
+      bootswatch: sandstone
+    toc_float: no
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+graphics.off()
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r loadLibraries, message = FALSE, warning= FALSE, include = FALSE}
+require(tidyverse)
+require(kableExtra)
+require(tidyquant)
+require(lubridate)
+require(timetk)
+require(tsibble)
+require(ggplot2)
+require(reshape2)
+require(fpp3)
+require(bslib)
+require(xts)
+require(vars)
+require(urca)
+require(tsDyn)
+require(dplyr)
+require(apt) 
+require(lmtest)
+```
+
+```{r getData, message = FALSE, include= FALSE}
+VarList <- c("RSXFS", "CES0500000003")
+sale <- tq_get(VarList, get = "economic.data", from = "2006-03-01", to = "2020-01-01") %>%
+  mutate(Month = yearmonth(date), value = price)  %>% 
+  mutate(symbol = recode(symbol, CES0500000003 = 'AHE')) %>% 
+  dplyr::select(-c(date, price)) %>%
+  as_tsibble(index = Month, key = symbol)
+
+salew <-
+  sale %>%
+  pivot_wider(names_from = symbol, values_from = value) %>%
+  as_tsibble()
+```
+
+## Summary
+
+In this paper we explored the relationship between average hourly earnings and retail sales. We estimated a VAR model and found that after an increase in earnings, retail sales would decrease in that initial period, before increasing in the next period. This might show that individuals save more after receiving a raise, and increase purchases after readjusting their budgets.
+
+## Introduction
+
+This project can also be found on my GitHub page: https://jehaywood7.github.io/
+
+## Data
+
+The variables we will be observing are Average Hourly Earnings (coded in FRED as CES0500000003) and Retail Sales (coded in FRED as RSXFS) from January of 2006 to January of 2020. I chose to keep the effects of the COVID-19 pandemic out of our model. For retail sales, the lock down had a strong negative effect, and the stimulus packages had a strong positive effect. These shifts could not be explained by changes in average hourly earnings, so they would've decreased model accuracy.Studying the dynamics of these variables will show a few interesting things. First I should note that only a one-way relationship is expected. Changes in AHE should effect retail sales however the inverse should not be true. If earnings increases, individuals will have more money to spend on retail goods; my goal is to understand the specifics of this effect by modeling and then analyzing the dynamics.
+
+
+
+```{r, include = FALSE}
+unitroot <- sale %>% 
+  features(value, unitroot_ndiffs) %>% 
+  kable(format = "html", table.attr = "style='width:30%;' ") %>% 
+  kableExtra::kable_styling()
+
+Dsale <- salew %>%
+  mutate(dRSXFS = 100 * difference(log(RSXFS)),
+        dAHE = 100 * difference(log(AHE), lag = 2)) %>%
+  dplyr::select(dRSXFS, dAHE) %>% 
+  tidyr::drop_na()
+dsale <- as.ts(Dsale, start = c(2006, 2), frequency = 12)
+```
+
+First we will load the data from FRED. We need to test for unit roots to locate these to determine if there are stochastic trends in our variables so that they can be removed. 
+`r unitroot` 
+1 was found in RSXFS, and 2 were found in AHE. After removing them, the variables were converted into monthly percentage changes as they were in different units. Now that the data is prepared, we can model it.
+
+
+<br/> <br/>
+
+## Modeling
+
+A Vector Auto-Regression (VAR) is a dynamic reduced form model in which we regress a vector of time series variables on lagged vectors of these variables. 
+
+<br/>
+
+\begin{align*}
+  AHE_t =& \, \beta_{1,0} + \beta_{1,1} AHE_{t-1} + \dots + \beta_{1p} AHE_{t-p} + \gamma_{1,1} RSFXS_{t-1} + \dots + \gamma_{1p} RSFXS_{t-p} + u_{1,t}, \\
+  RSFXS_t =& \, \beta_{2,0} + \beta_{2,1} AHE_{t-1} + \dots + \beta_{2p} AHE_{t-p} + \gamma_{2,1} RSFXS_{t-1} + \dots + \gamma_{2p} RSFXS_{t-p} + u_{2,t}.
+\end{align*}
+
+<br/>
+
+
+
+
+```{r, include = FALSE}
+ds <- dsale[,c(2,1)]
+tmp <- VARselect(ds,lag.max=12,type="const")
+
+lagtests <- tmp$selection %>% 
+  kable(format = "html", table.attr = "style='width:20%;' ") %>% 
+  kableExtra::kable_styling() 
+```
+To find the $\hat{\beta}$s and $\hat{\gamma}$s we will first need to find the optimal number of lags: $p$. Testing for this ensures we do not omit important lag periods, while preventing us from wasting degrees of freedom by including too many parameters. There are multiple tests for this, and of the 4 that I ran:
+
+`r lagtests`
+
+3 estimated an optimal lag length of $p = 6$ so that is what I will be using in the models. While the VAR function automatically estimates 2 models, it should be noted that only one of the models ($\small{RSFXS_t}$ as the response variable) should be useful. 
+
+After estimating the VAR model with 6 lags, I found the following 2 models (note: RS = RSXFS) :
+
+<br/>
+
+\begin{align*}
+  AHE_t =& \, 0.115 + 0.493 AHE_{t-1} - 0.548 AHE_{t-2} + 0.762 AHE_{t-3} - 0.342 AHE_{t-4} + 0.551 AHE_{t-5} - 0.201 AHE_{t-6}  \\
+& - 0.019 RS_{t-1} - 0.002 RS_{t-2} + 0.0002 RS_{t-3} + 0.014 RS_{t-4} + 0.010 RS_{t-5} + 0.013 RS_{t-6} \\
+\\
+  RS_t =& \, 0.949+ 0.406 AHE_{t-1} - 0.082 AHE_{t-2} - 1.136 AHE_{t-3} - 0.220 AHE_{t-4} + 0.090 AHE_{t-5} - 0.877 AHE_{t-6} \\
+& + 0.172 RS_{t-1} + 0.115 RS_{t-2} - 0.118 RS_{t-3} + 0.044 RS_{t-4} + 0.038  RS_{t-5} - 0.107 RS_{t-6}
+\end{align*}
+
+<br/>
+
+
+```{r, include = FALSE}
+var.sale <- VAR(ds,p=6,type="const")
+summary(var.sale)
+
+GR1 <- grangertest(dAHE ~ dRSXFS,order=6,data=ds)
+
+GTest1 <- GR1[c(2),c(3,4)] %>%
+  kable(format = "html", table.attr = "style='width:30%;' ") %>% 
+  kableExtra::kable_styling()
+
+GR2 <- grangertest(dRSXFS ~ dAHE,order=6,data=ds)
+
+GTest2 <- GR2[c(2),c(3,4)] %>%
+  kable(format = "html", table.attr = "style='width:30%;' ") %>% 
+  kableExtra::kable_styling()
+
+GTest1
+
+GTest2
+```
+
+With the models now estimated, we will verify that our expected dynamic relationship is correct using Granger causality tests. This tests measures whether pasts values of 1 variable can be used to forecast future variables of another. The 4 possible outcome that these tests will show are:
+
+
+<ol>
+  <li>$\small{dAHE \Rightarrow dRSXFS}$ but $\small{dAHE \nLeftarrow dRSXFS}$; one-way causality</li>
+  <li>$\small{dAHE \nRightarrow dRSXFS}$ but $\small{dAHE \Leftarrow dRSXFS}$; one-way causality the other direction</li>
+  <li>$\small{dAHE \Rightarrow dRSXFS}$ and $\small{dAHE \Leftarrow dRSXFS}$; two-way causality (a feedback system)</li>
+  <li>$\small{dAHE \nRightarrow dRSXFS}$ and $\small{dAHE \nLeftarrow dRSXFS}$; neither variable causes the other</li>
+</ol>
+
+
+The expected relationship is option 1: $\small{dAHE}$  causes  $\small{dRSXFS}$, but the inverse is false.
+
+The null and alternative hypotheses for the first test are:
+
+$$\small{H_o: \text { dRSXFS does not cause dAHE  vs. } H_A: \text{ It does }}$$
+`r GTest1`
+
+The p-value is equal to $\small{0.2292831}$ so we fail to reject the null hypothesis and say that $\small{dRSXFS}$ do not cause $\small{dAHE}$.
+
+The null and alternative hypotheses for the first test are:
+
+$$\small{H_o: \text { dAHE does not cause in dRSXFS  vs. } H_A: \text { It does }}$$
+`r GTest2`
+
+The p-value is equal to $\small{0.0360449}$ so we reject the null hypothesis and say that $\small{dAHE}$ causes $\small{dRSXFS}$. This confirms our expected relationship.
+
+<br/> <br/>
+
+## Visualizing the Dynamics
+
+We will now examine impulse response functions (IRFs) to better understand the dynamics of retail sales and average hourly earnings. An IRF allows us to view how one variable reacts when we shock another. If our expectations and tests were accurate, shocking RSXFS should have no effect on AHE, and shocking AHE should show a reaction from RSXFS.
+
+```{r}
+IRF <- plot(irf(var.sale, n.ahead = 10, boot = TRUE ))
+```
+
+<br/>
+
+As expected the top plot shows that shocking AHE causes RSXFS to shift, and shocking RSXFS does not produce a response from AHE. 
+
+The dynamics of the Orthogonal Impulse Response Function from dAHE are very interesting. Earlier I stated that if AHE increases, individuals will have more money to spend on retail goods, so I expected no immediate change in retail sales but a positive effect in the next period. While we do see the positive effect in period 1, the negative effect in period 0 is unexpected. My theory for this shift is that individuals react to positive wage changes with an initial increase in savings, in the next month they have reorganized their budgets and will now begin to spend more on retail goods.
+
+
+To further understand the dynamics, we will observe a forecast error variance decomposition. This shows what percent of the variation in one variable can be explained by the other.
+
+```{r}
+fevd(var.sale, n.ahead = 12)
+```
+
+As expected, almost no variation in AHE can be explained by retail sales. While it is stronger, AHE only explains a small amount of the variation in retail sales. This makes sense as there are likely many factors that are influencing retail sales.
+
+<br/> <br/>
+
+## Conclusion
+
+The effect of average hourly earnings on retail sales is interesting. Our model showed that after an increase in earnings, people would be more likely to save in that initial period, before increasing retail purchases in the next period. 
+
+While average hourly earning does affect retail sales, it is a somewhat weak effect. We would require a model with many variables to properly forecast retail sales.
+
+
+<p style="page-break-after: always;">&nbsp;</p>
+<p style="page-break-before: always;">&nbsp;</p>
+
+## Citations
+
+U.S. Census Bureau, Advance Retail Sales: Retail Trade [RSXFS], retrieved from FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/RSXFS, April 22, 2022.
+
+U.S. Bureau of Labor Statistics, Average Hourly Earnings of All Employees, Total Private [CES0500000003], retrieved from FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/CES0500000003, April 21, 2022.
+
+
