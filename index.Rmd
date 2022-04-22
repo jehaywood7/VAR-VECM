@@ -54,19 +54,18 @@ salew <-
   as_tsibble()
 ```
 
-## Summary
+## Executive Summary
 
 In this paper we explored the relationship between average hourly earnings and retail sales. We estimated a VAR model and found that after an increase in earnings, retail sales would decrease in that initial period, before increasing in the next period. This might show that individuals save more after receiving a raise, and increase purchases after readjusting their budgets.
 
 ## Introduction
 
+The goal for this paper is to understand the dynamic relationship between earnings and retail sales. The variables we will be observing are Average Hourly Earnings (coded in FRED as CES0500000003) and Retail Sales (coded in FRED as RSXFS) from January of 2006 to January of 2020. I chose to keep the effects of the COVID-19 pandemic out of the model. For retail sales, the lock down had a strong negative effect, and the stimulus packages had a strong positive effect. These shifts could not be explained by changes in average hourly earnings, so they would've decreased model accuracy. Studying the dynamics of these variables will show a few interesting things. First I should note that only a one-way relationship is expected. Changes in AHE should effect retail sales however the inverse should not be true. If earnings increases, individuals will have more money to spend on retail goods; my goal is to understand the specifics of this effect by modeling and then analyzing the dynamics.
+
+
 This project can also be found on my GitHub page: https://jehaywood7.github.io/
 
 ## Data
-
-The variables we will be observing are Average Hourly Earnings (coded in FRED as CES0500000003) and Retail Sales (coded in FRED as RSXFS) from January of 2006 to January of 2020. I chose to keep the effects of the COVID-19 pandemic out of our model. For retail sales, the lock down had a strong negative effect, and the stimulus packages had a strong positive effect. These shifts could not be explained by changes in average hourly earnings, so they would've decreased model accuracy.Studying the dynamics of these variables will show a few interesting things. First I should note that only a one-way relationship is expected. Changes in AHE should effect retail sales however the inverse should not be true. If earnings increases, individuals will have more money to spend on retail goods; my goal is to understand the specifics of this effect by modeling and then analyzing the dynamics.
-
-
 
 ```{r, include = FALSE}
 unitroot <- sale %>% 
